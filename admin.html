@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EchoTyping Admin</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0e0e14;color:#c0caf5;padding:2rem;min-height:100vh}
+h1{color:#7aa2f7;margin-bottom:1.5rem}
+h2{color:#9ece6a;margin:2rem 0 1rem;font-size:1.1rem;text-transform:uppercase;letter-spacing:0.05em}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:1rem}
+th{text-align:left;padding:10px 12px;background:#1a1a26;color:#8888aa;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;border-bottom:2px solid #262636}
+td{padding:10px 12px;border-bottom:1px solid #1e1e2e}
+tr:hover td{background:#14141c}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:1rem;margin-bottom:2rem}
+.stat-card{background:#14141c;border:1px solid #1e1e2e;border-radius:8px;padding:1.5rem}
+.stat-value{font-size:2rem;font-weight:300;color:#7aa2f7}
+.stat-label{font-size:11px;color:#5a5a78;text-transform:uppercase;margin-top:4px}
+.loading{color:#5a5a78;font-style:italic}
+.error{color:#f7768e;padding:1rem;background:#1f1020;border-radius:6px;margin:1rem 0}
+
+.login-overlay{position:fixed;inset:0;background:#0e0e14;display:flex;align-items:center;justify-content:center;z-index:999}
+.login-box{background:#14141c;border:1px solid #262636;border-radius:12px;padding:2.5rem;width:100%;max-width:360px;text-align:center}
+.login-box h2{margin:0 0 0.5rem;color:#7aa2f7;text-transform:none;letter-spacing:0}
+.login-box p{color:#5a5a78;font-size:13px;margin-bottom:1.5rem}
+.login-box input{width:100%;background:#0e0e14;border:1px solid #262636;border-radius:6px;padding:10px 14px;color:#c0caf5;font-size:14px;margin-bottom:12px;outline:none}
+.login-box input:focus{border-color:#7aa2f7}
+.login-box button{width:100%;background:#7aa2f7;color:#0e0e14;border:none;padding:10px;border-radius:6px;font-size:14px;font-weight:600;cursor:pointer}
+.login-box button:hover{background:#6b92f0}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<div class="login-overlay" id="login-gate">
+  <div class="login-box">
+    <h2>🔒 Owner Access</h2>
+    <p>Enter your admin secret key to view user data.</p>
+    <input type="password" id="admin-key" placeholder="Admin secret key" onkeydown="if(event.key==='Enter')unlock()"/>
+    <button onclick="unlock()">Unlock</button>
+    <p class="error" id="login-err" style="margin-top:12px;font-size:12px;display:none"></p>
+  </div>
+</div>
+
+<div id="dashboard" class="hidden">
+<h1>🔧 EchoTyping Admin Dashboard</h1>
+<div class="stats" id="stats">
+  <div class="stat-card"><div class="stat-value" id="s-users">-</div><div class="stat-label">Total Users</div></div>
+  <div class="stat-card"><div class="stat-value" id="s-tests">-</div><div class="stat-label">Total Tests</div></div>
+  <div class="stat-card"><div class="stat-value" id="s-avg">-</div><div class="stat-label">Avg WPM</div></div>
+  <div class="stat-card"><div class="stat-value" id="s-top">-</div><div class="stat-label">Top User</div></div>
+</div>
+<h2>👥 Users</h2>
+<table>
+  <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Level</th><th>XP</th><th>Tests</th><th>Best WPM</th><th>Joined</th></tr></thead>
+  <tbody id="users-tbody"><tr><td colspan="8" class="loading">Loading...</td></tr></tbody>
+</table>
+<h2>📝 Recent Tests</h2>
+<table>
+  <thead><tr><th>ID</th><th>User</th><th>WPM</th><th>Accuracy</th><th>Mode</th><th>Language</th><th>Date</th></tr></thead>
+  <tbody id="tests-tbody"><tr><td colspan="7" class="loading">Loading...</td></tr></tbody>
+</table>
+</div>
+
+<script>
+const API = window.location.origin + '/api/admin';
+let adminKey = sessionStorage.getItem('admin_key') || '';
+
+if (adminKey) unlock(true);
+
+function showLoginError(msg) {
+  const el = document.getElementById('login-err');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+async function unlock(skipCheck) {
+  if (!skipCheck) {
+    adminKey = document.getElementById('admin-key').value.trim();
+  }
+  if (!adminKey) return;
+
+  try {
+    const res = await fetch(API + '/stats?key=' + encodeURIComponent(adminKey));
+    const data = await res.json();
+
+    if (!res.ok) {
+      showLoginError(data.error || 'Invalid key');
+      return;
+    }
+
+    sessionStorage.setItem('admin_key', adminKey);
+    document.getElementById('login-gate').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+    loadDashboard();
+  } catch (e) {
+    showLoginError('Server error: ' + e.message);
+  }
+}
+
+async function loadDashboard() {
+  try {
+    const [statsRes, usersRes, testsRes] = await Promise.all([
+      fetch(API + '/stats?key=' + adminKey),
+      fetch(API + '/users?key=' + adminKey),
+      fetch(API + '/tests?key=' + adminKey)
+    ]);
+
+    const stats = await statsRes.json();
+    const users = await usersRes.json();
+    const tests = await testsRes.json();
+
+    if (!statsRes.ok || !usersRes.ok || !testsRes.ok) {
+      document.body.innerHTML += '<p class="error">API Error: ' + (stats.error || users.error || tests.error) + '</p>';
+      return;
+    }
+
+    document.getElementById('s-users').textContent = stats.totalUsers || 0;
+    document.getElementById('s-tests').textContent = stats.totalTests || 0;
+    document.getElementById('s-avg').textContent = stats.averageWpm || 0;
+    document.getElementById('s-top').textContent = stats.topUser ? stats.topUser.username : '-';
+
+    const usersArr = Array.isArray(users) ? users : [];
+    const testsArr = Array.isArray(tests) ? tests : [];
+
+    document.getElementById('users-tbody').innerHTML = usersArr.length ? usersArr.map(u => `
+      <tr><td>${u.id}</td><td>${u.username}</td><td>${u.email}</td><td>${u.level}</td>
+      <td>${u.xp}</td><td>${u.total_tests}</td><td>${u.pb_wpm}</td>
+      <td>${u.joined_at ? new Date(u.joined_at).toLocaleDateString() : '-'}</td></tr>
+    `).join('') : '<tr><td colspan="8" class="loading">No users yet</td></tr>';
+
+    document.getElementById('tests-tbody').innerHTML = testsArr.length ? testsArr.map(t => `
+      <tr><td>${t.id}</td><td>${t.username}</td><td style="color:#7aa2f7;font-weight:600">${t.wpm}</td>
+      <td style="color:#9ece6a">${t.accuracy}%</td><td>${t.mode}</td><td>${t.language}</td>
+      <td>${t.created_at ? new Date(t.created_at).toLocaleString() : '-'}</td></tr>
+    `).join('') : '<tr><td colspan="7" class="loading">No tests yet</td></tr>';
+  } catch (e) {
+    document.body.innerHTML += '<p class="error">Error loading dashboard: ' + e.message + '</p>';
+  }
+}
+</script>
+</body>
+</html>
